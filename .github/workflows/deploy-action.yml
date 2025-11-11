@@ -1,0 +1,146 @@
+# Nome do Workflow
+name: Android CI/CD - Build e App Distribution (CORRIGIDO)
+
+# Define quando o workflow deve ser executado
+on:
+  # Permite acionar manualmente pela aba Actions
+  workflow_dispatch:
+  # Aciona em push para a branch 'main'
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    # Define o tipo de máquina para executar o job
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Faz o checkout do código do repositório
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Configura o ambiente Java (JDK)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      # 3. Configura o cache do Gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      # 4. Concede permissão de execução ao Gradle Wrapper
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # 5. Decodifica o keystore do Base64 e salva como arquivo
+      - name: Decode Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_FILE }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > release-keystore.jks
+          echo "Keystore decoded successfully"
+
+      # 6. Executa o build de release (gera o APK assinado)
+      - name: Build with Gradle
+        run: ./gradlew assembleRelease --stacktrace
+        env:
+          KEYSTORE_FILE: ./release-keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      # 7. Verifica o APK gerado
+      - name: Verify APK
+        run: |
+          echo "=== Listing APK directory ==="
+          ls -lh app/build/outputs/apk/release/
+          echo "=== APK file info ==="
+          file app/build/outputs/apk/release/app-release.apk || file app/build/outputs/apk/release/*.apk
+          echo "=== APK size ==="
+          du -h app/build/outputs/apk/release/*.apk
+
+      # 8. Salva o APK gerado como um artefato
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+  distribute:
+    # Este job só roda se o job 'build' for bem-sucedido
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Baixa o artefato (APK) salvo pelo job 'build'
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-release
+          path: ./apk
+
+      # 2. Lista os arquivos baixados para debug
+      - name: List downloaded files
+        run: |
+          echo "=== Downloaded files ==="
+          ls -lh ./apk/
+          # Renomeia o APK para um nome consistente se necessário
+          cd ./apk
+          APK_FILE=$(ls *.apk | head -n 1)
+          if [ "$APK_FILE" != "app-release.apk" ]; then
+            mv "$APK_FILE" app-release.apk
+          fi
+          cd ..
+
+      # 3. Decodifica e salva as credenciais da Conta de Serviço
+      - name: Decode Service Account
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          echo "$SERVICE_ACCOUNT_JSON" > ./service-account.json
+          echo "Service account file created"
+
+      # 4. Envia o APK para o Firebase App Distribution
+      - name: Upload to Firebase App Distribution
+        uses: wzieba/Firebase-Distribution-Github-Action@v1.7.0
+        with:
+          # ID do seu App no Firebase
+          appId: ${{ secrets.FIREBASE_APP_ID }}
+
+          # Caminho para o arquivo JSON da conta de serviço
+          serviceCredentialsFile: ./service-account.json
+
+          # Caminho para o APK que foi baixado
+          file: ./apk/app-release.apk
+
+          # (Opcional) Grupos de testadores no Firebase
+          # ATENÇÃO: Remova esta linha se os grupos não existirem no Firebase
+          # ou crie os grupos antes de executar a pipeline
+          groups: testers
+
+          # (Opcional) Notas de versão
+          releaseNotes: |
+            🚀 Build #${{ github.run_number }}
+            📝 Commit: ${{ github.sha }}
+            🌿 Branch: ${{ github.ref_name }}
+            👤 Author: ${{ github.actor }}
+            💬 Message: ${{ github.event.head_commit.message }}
+
+      # 5. Notifica sucesso
+      - name: Success notification
+        if: success()
+        run: |
+          echo "✅ APK distribuído com sucesso para o Firebase App Distribution!"
+          echo "📱 Os testadores receberão uma notificação em breve."
+
+      # 6. Notifica falha
+      - name: Failure notification
+        if: failure()
+        run: |
+          echo "❌ Falha ao distribuir o APK!"
+          echo "🔍 Verifique os logs acima para mais detalhes."
