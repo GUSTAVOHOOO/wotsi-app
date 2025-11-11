@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "510398300815",
+    "project_id": "wotsi-app",
+    "storage_bucket": "wotsi-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:510398300815:android:e74ea59b8c9a6c2da6e6fa",
+        "android_client_info": {
+          "package_name": "br.edu.utfpr.cc.setac.wotsiapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB6Kjbezh9lztp_8kvmDWkc7JXRlnWWhok"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
